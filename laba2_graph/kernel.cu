@@ -196,7 +196,7 @@ __global__ void cudaStepAndNewPointers(int startindex, Node* tmpNode, Pointer** 
 	int indexPath = (blockDim.x * blockIdx.x + threadIdx.x) + startindex;
 
 	Node* nextNode = tmpNode->paths[indexPath];
-	if (nextNode == finishNode)
+	if (nextNode->value == finishNode->value)
 	{
 		atomicAdd(pathCounter, 1);
 	}
@@ -210,7 +210,7 @@ __global__ void cudaStepAndNewPointers(int startindex, Node* tmpNode, Pointer** 
 __global__ void cudaStepForOne(Pointer* pointer, Node* finishNode, int* pathCounter) {
 	Node* tmpNode = pointer->node;
 	Node* nextNode = tmpNode->paths[0];
-	if (nextNode == finishNode)
+	if (nextNode->value == finishNode->value)
 	{
 		atomicAdd(pathCounter, 1);
 	}
@@ -219,7 +219,7 @@ __global__ void cudaStepForOne(Pointer* pointer, Node* finishNode, int* pathCoun
 
 }
 
-void cudaMakeStep(Pointer* pointer, Pointer** lastPointer, Node* finishNode, int* pathCounter, int* counterNewPointer) {
+__global__ void cudaMakeStep(Pointer* pointer, Pointer** lastPointer, Node* finishNode, int* pathCounter, int* counterNewPointer) {
 	if (pointer != NULL && pointer->node->sizePaths > 0)
 	{
 		if (pointer->node == finishNode)
@@ -253,34 +253,19 @@ void cudaMakeStep(Pointer* pointer, Pointer** lastPointer, Node* finishNode, int
 	}
 }
 
-int findGPU(Graph graph, int pointA, int pointB) {
-	Graph* cudaGraph;
-	cudaMalloc(&cudaGraph, sizeof(Graph));
-	cudaMemcpy(cudaGraph, &graph, sizeof(graph), cudaMemcpyHostToDevice);
 
 
 
-
-	cudaFree(cudaGraph);
-}
-
-
-int cudaFindAmountPathsGraph(Graph graph, int pointA, int pointB) {
+__global__ void  cudaFindAmountPathsGraph(Graph graph, int pointA, int pointB, int *cudaResult) {
 
 	Node* nodeA = &graph.nodes[pointA];
 	Node* nodeB = &graph.nodes[pointB];
-
-	int amountPaths = 0;
-	int* cudaResult;
-	cudaMalloc(&cudaResult, sizeof(int));
-	cudaMemcpy(cudaResult, &amountPaths, sizeof(int), cudaMemcpyHostToDevice);
 
 	Pointer* movedPointers = new Pointer();
 	movedPointers->node = nodeA;
 	Pointer* lastPointer = movedPointers;
 	int pointerSize = 1;
-	int* cudaCounterNewPointers;
-	cudaMalloc(&cudaCounterNewPointers, sizeof(int));
+	int* cudaCounterNewPointers  = 0;
 	for (int step = 0; step < graph.size; step++)
 	{
 		Pointer* currentPointer = movedPointers;
@@ -289,21 +274,33 @@ int cudaFindAmountPathsGraph(Graph graph, int pointA, int pointB) {
 
 		for (int pointerIndex = 0; pointerIndex < pointerSize; pointerIndex++)
 		{
-			cudaMemcpy(cudaCounterNewPointers, 0, sizeof(int), cudaMemcpyHostToDevice);
-			cudaMakeStep(currentPointer, &lastPointer, nodeB, cudaResult, cudaCounterNewPointers);
+			cudaMakeStep<<<1, 1>>>(currentPointer, &lastPointer, nodeB, cudaResult, cudaCounterNewPointers);
 			if (currentPointer == NULL)
 			{
 				break;
 			}
 			currentPointer = currentPointer->next;
-			int tmpCouter = 0;
-			cudaMemcpy(&tmpCouter, cudaCounterNewPointers, sizeof(int), cudaMemcpyDeviceToHost);
-			counterNewPointers += tmpCouter;
+			counterNewPointers ++;
 		}
 		pointerSize += counterNewPointers;
 	}
+}
+
+int findGPU(Graph graph, int pointA, int pointB) {
+	Graph* cudaGraph;
+	cudaMalloc(&cudaGraph, sizeof(Graph));
+	cudaMemcpy(cudaGraph, &graph, sizeof(graph), cudaMemcpyHostToDevice);
+
+	int amountPaths = 0;
+	int* cudaResult;
+	cudaMalloc(&cudaResult, sizeof(int));
+	cudaMemcpy(cudaResult, &amountPaths, sizeof(int), cudaMemcpyHostToDevice);
+
+	cudaFindAmountPathsGraph <<<1, 1 >>>(graph, pointA, pointB, cudaResult);
 
 	cudaMemcpy(&amountPaths, cudaResult, sizeof(int), cudaMemcpyDeviceToHost);
+
+	cudaFree(cudaGraph);
 
 	return amountPaths;
 }
@@ -323,14 +320,14 @@ int main() {
 	printf("Input point B:");
 	scanf("%d", &pointB);
 
-	int countPathsGPU = cudaFindAmountPathsGraph(graph, pointA, pointB);
-	printf("GPU result: %d", countPathsGPU);
+	/*int countPathsGPU = findGPU(graph, pointA, pointB);
+	printf("GPU result: %d", countPathsGPU);*/
 
 	int countPaths = findAmountPathsGraph(graph, pointA, pointB);
 	printf("CPU result: %d", countPaths);
 
 	
-
+	scanf("",nullptr);
 	return(0);
 };
 
